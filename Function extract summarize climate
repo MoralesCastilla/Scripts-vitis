@@ -1,0 +1,365 @@
+################################################
+# Script and functions to:
+# * Read in climate data from wine-growing regions 
+# * Homogenize data into a common data.frame with max and mins
+# * Preparing figure comparing climatic conditions pre- and post-CC
+# 
+# Ignacio Morales-Castilla & Elizabeth Wolkovich
+################################################
+
+
+#' Read summary data from excel file
+#'
+
+#load(".RData")
+summary.table<-read.table("wineweatherregions.main.txt",sep="\t",header=T)
+wine.regions<-summary.table$Region2
+
+## regions for which there is climatic data
+wine.regions.withdata<-wine.regions[which(wine.regions%in%dir("C:/Users/wiwit_000/Documents/MEGA/Work_Harvard_postdoc/vitis/data/Climate Data/"))]
+
+#' function to extract digits from text string
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+
+#' Generate empty data.frame to store data
+#' 
+
+climate.each.region<-array(NA,dim=c(length(wine.regions.withdata),8,3))
+row.names(climate.each.region)<-wine.regions.withdata
+colnames(climate.each.region)<-c("Temp.pre80.avg","Temp.pre80.sd","Temp.post80.avg","Temp.post80.sd",
+                                  "Temp.pre80.min","Temp.post80.min","Temp.pre80.max","Temp.post80.max")
+
+#' Function to read in and summarize climatic data within the object climate.each.region
+#' across all years 
+#' @param list.regions factor vector with names of wine-producing regions
+#' @param year.threshold numerical value indicating the year to partition data as pre- and post-
+#' climate change
+#' @param growth logical indicating if only growing season is accounted for (TRUE) - needs revision!!
+#' @return 3D array with regions by temp-metrics for TX, TN and TG (when available)
+
+extract.climate<-function(list.regions,year.threshold,growth){
+  ## set up
+  list.regions=wine.regions.withdata
+    year.threshold=1980
+  
+  temp.vector<-c("TX_","TN_","TG_")
+  climate.each.region<-array(NA,dim=c(length(list.regions),8,3))
+  row.names(climate.each.region)<-list.regions
+  colnames(climate.each.region)<-c("Temp.pre80.avg","Temp.pre80.sd","Temp.post80.avg","Temp.post80.sd",
+                                   "Temp.pre80.min","Temp.post80.min","Temp.pre80.max","Temp.post80.max")
+  
+  yeartrext<-year.threshold*10000
+  
+  ## do work
+if(growth==F){
+for (i in 1:nrow(climate.each.region)){
+  #i=15
+  name.region<-list.regions[i]
+  ## change to your data-containing folder
+  name.folder<-paste("C:/Users/wiwit_000/Documents/MEGA/Work_Harvard_postdoc/vitis/data/Climate Data/",name.region,"",sep="")
+  content.folder<-dir(name.folder)
+  subfolder.to.open<-which(!grepl(".zip",content.folder)& grepl("ECA_",content.folder))
+  name.folder2<-paste(name.folder,"/",content.folder[subfolder.to.open],sep="")
+  content.folder2<-dir(name.folder2)
+  
+## skip if only precipitation data (there is at list one temperature file)
+  if(sum(sum(grepl(temp.vector[1],content.folder2)),
+     sum(grepl(temp.vector[2],content.folder2)),
+     sum(grepl(temp.vector[3],content.folder2)))>0){
+  
+  ## loop across temperature metrics
+  for (j in 1:length(temp.vector)){
+  print(paste(i,j))
+  
+  if(sum(grepl(temp.vector[j],content.folder2))>0){
+  Temp.to.open<-which(grepl(temp.vector[j],content.folder2))
+  temps<-read.table(file=paste(name.folder2,"/",content.folder2[Temp.to.open],sep=""),header=T,skip=19,sep=",")
+  
+  ## check if KMNI source
+  if(colnames(temps)[1]=="SOUID"){
+  
+  ## remove NA data (-9999)
+  if(-9999%in%temps[,3]){
+  temps<-temps[-which(temps[,3]==-9999),]}
+  
+  if(9990%in%temps[,3]){
+  temps<-temps[-which(temps[,3]==9990),]}
+  
+  ## subset pre and post climate change
+  temps.pre80<-temps[which(temps$DATE<yeartrext),]
+  temps.post80<-temps[which(temps$DATE>=yeartrext),]
+  
+  ## store results
+  climate.each.region[i,1,j]<-mean(temps.pre80[,3])*0.1
+  climate.each.region[i,2,j]<-sd(temps.pre80[,3])*0.1
+  climate.each.region[i,3,j]<-mean(temps.post80[,3])*0.1
+  climate.each.region[i,4,j]<-sd(temps.post80[,3])*0.1
+  climate.each.region[i,5,j]<-min(temps.pre80[,3])*0.1
+  climate.each.region[i,6,j]<-min(temps.post80[,3])*0.1
+  climate.each.region[i,7,j]<-max(temps.pre80[,3])*0.1
+  climate.each.region[i,8,j]<-max(temps.post80[,3])*0.1
+  } else {
+    temps<-read.delim(file=paste(name.folder2,"/",content.folder2[Temp.to.open],sep=""),header=F,skip=7,sep="\t")
+
+    if(is.factor(temps[1,])){
+      temps.vec<-apply(temps,1,substrRight,n=5)
+      years.vec<-apply(temps,1,substr,start=1,stop=5)
+      
+      if(nchar(as.numeric(years.vec[1]))==5){
+        temps.pre80<-as.numeric(temps.vec[which(as.numeric(years.vec)<(year.threshold*10))])
+        temps.post80<-as.numeric(temps.vec[which(as.numeric(years.vec)>=(year.threshold*10))])
+        
+        ## remove NAs
+        temps.pre80<-temps.pre80[-which(temps.pre80>900)]
+        temps.post80<-  temps.post80[-which(temps.post80>900)]
+        
+        ## store results
+        climate.each.region[i,1,j]<-mean(temps.pre80)
+        climate.each.region[i,2,j]<-sd(temps.pre80)
+        climate.each.region[i,3,j]<-mean(temps.post80)
+        climate.each.region[i,4,j]<-sd(temps.post80)
+        climate.each.region[i,5,j]<-min(temps.pre80)
+        climate.each.region[i,6,j]<-min(temps.post80)
+        climate.each.region[i,7,j]<-max(temps.pre80)
+        climate.each.region[i,8,j]<-max(temps.post80)
+        
+      } else {
+      
+      temps.pre80<-as.numeric(temps.vec[which(as.numeric(years.vec)<year.threshold)])
+      temps.post80<-as.numeric(temps.vec[which(as.numeric(years.vec)>=year.threshold)])
+      
+      ## remove NAs
+      if(sum(temps.pre80>900)>0){
+      temps.pre80<-temps.pre80[-which(temps.pre80>900)]}
+      if(sum(temps.post80>900)>0){
+      temps.post80<-  temps.post80[-which(temps.post80>900)]}
+      
+      ## store results
+      climate.each.region[i,1,j]<-mean(temps.pre80)
+      climate.each.region[i,2,j]<-sd(temps.pre80)
+      climate.each.region[i,3,j]<-mean(temps.post80)
+      climate.each.region[i,4,j]<-sd(temps.post80)
+      climate.each.region[i,5,j]<-min(temps.pre80)
+      climate.each.region[i,6,j]<-min(temps.post80)
+      climate.each.region[i,7,j]<-max(temps.pre80)
+      climate.each.region[i,8,j]<-max(temps.post80)
+      }
+    } else {
+    
+    ## remove NA data (-9999)
+    if(-9999%in%temps[,4]){
+      temps<-temps[-which(temps[,4]==-9999),]}
+    
+    ## subset pre and post climate change
+    temps.pre80<-temps[which(temps[,1]<year.threshold),]
+    temps.post80<-temps[which(temps[,1]>=year.threshold),]
+    
+    ## store results
+    climate.each.region[i,1,j]<-mean(temps.pre80[,4])
+    climate.each.region[i,2,j]<-sd(temps.pre80[,4])
+    climate.each.region[i,3,j]<-mean(temps.post80[,4])
+    climate.each.region[i,4,j]<-sd(temps.post80[,4])
+    climate.each.region[i,5,j]<-min(temps.pre80[,4])
+    climate.each.region[i,6,j]<-min(temps.post80[,4])
+    climate.each.region[i,7,j]<-max(temps.pre80[,4])
+    climate.each.region[i,8,j]<-max(temps.post80[,4])
+    
+        }
+      }
+    } 
+  }
+  }
+  
+  
+}
+} else {
+  for (i in 1:nrow(climate.each.region)){
+    #i=15
+    name.region<-list.regions[i]
+    ## change to your data-containing folder
+    name.folder<-paste("C:/Users/wiwit_000/Documents/MEGA/Work_Harvard_postdoc/vitis/data/Climate Data/",name.region,"",sep="")
+    content.folder<-dir(name.folder)
+    subfolder.to.open<-which(!grepl(".zip",content.folder)& grepl("ECA_",content.folder))
+    name.folder2<-paste(name.folder,"/",content.folder[subfolder.to.open],sep="")
+    content.folder2<-dir(name.folder2)
+    
+    ## skip if only precipitation data (there is at list one temperature file)
+    if(sum(sum(grepl(temp.vector[1],content.folder2)),
+           sum(grepl(temp.vector[2],content.folder2)),
+           sum(grepl(temp.vector[3],content.folder2)))>0){
+      
+      ## loop across temperature metrics
+      for (j in 1:length(temp.vector)){
+        print(paste(i,j))
+        
+        if(sum(grepl(temp.vector[j],content.folder2))>0){
+          Temp.to.open<-which(grepl(temp.vector[j],content.folder2))
+          temps<-read.table(file=paste(name.folder2,"/",content.folder2[Temp.to.open],sep=""),header=T,skip=19,sep=",")
+          
+          ## check if KMNI source
+          if(colnames(temps)[1]=="SOUID"){
+            
+            ## remove NA data (-9999)
+            if(-9999%in%temps[,3]){
+              temps<-temps[-which(temps[,3]==-9999),]}
+            
+            if(9990%in%temps[,3]){
+              temps<-temps[-which(temps[,3]==9990),]}
+            
+            ## subset pre and post climate change
+            temps.pre80<-temps[which(temps$DATE<yeartrext),]
+            temps.post80<-temps[which(temps$DATE>=yeartrext),]
+            
+            ## remove non-growing season
+            temps.pre80<-temps.pre80[which(temps.pre80[,3]>median(temps.pre80[,3])),]
+            temps.post80<-temps.post80[which(temps.post80[,3]>median(temps.post80[,3])),]
+            
+            ## store results
+            climate.each.region[i,1,j]<-mean(temps.pre80[,3])*0.1
+            climate.each.region[i,2,j]<-sd(temps.pre80[,3])*0.1
+            climate.each.region[i,3,j]<-mean(temps.post80[,3])*0.1
+            climate.each.region[i,4,j]<-sd(temps.post80[,3])*0.1
+            climate.each.region[i,5,j]<-min(temps.pre80[,3])*0.1
+            climate.each.region[i,6,j]<-min(temps.post80[,3])*0.1
+            climate.each.region[i,7,j]<-max(temps.pre80[,3])*0.1
+            climate.each.region[i,8,j]<-max(temps.post80[,3])*0.1
+          } else {
+            temps<-read.delim(file=paste(name.folder2,"/",content.folder2[Temp.to.open],sep=""),header=F,skip=7,sep="\t")
+            
+            if(is.factor(temps[1,])){
+              temps.vec<-apply(temps,1,substrRight,n=5)
+              years.vec<-apply(temps,1,substr,start=1,stop=5)
+              
+              if(nchar(as.numeric(years.vec[1]))==5){
+                temps.pre80<-as.numeric(temps.vec[which(as.numeric(years.vec)<(year.threshold*10))])
+                temps.post80<-as.numeric(temps.vec[which(as.numeric(years.vec)>=(year.threshold*10))])
+                
+                ## remove NAs
+                temps.pre80<-temps.pre80[-which(temps.pre80>900)]
+                temps.post80<-  temps.post80[-which(temps.post80>900)]
+                
+                ## remove non-growing season
+                temps.pre80<-temps.pre80[which(temps.pre80>median(temps.pre80))]
+                temps.post80<-temps.post80[which(temps.post80>median(temps.post80))]
+                
+                ## store results
+                climate.each.region[i,1,j]<-mean(temps.pre80)
+                climate.each.region[i,2,j]<-sd(temps.pre80)
+                climate.each.region[i,3,j]<-mean(temps.post80)
+                climate.each.region[i,4,j]<-sd(temps.post80)
+                climate.each.region[i,5,j]<-min(temps.pre80)
+                climate.each.region[i,6,j]<-min(temps.post80)
+                climate.each.region[i,7,j]<-max(temps.pre80)
+                climate.each.region[i,8,j]<-max(temps.post80)
+                
+              } else {
+                
+                temps.pre80<-as.numeric(temps.vec[which(as.numeric(years.vec)<year.threshold)])
+                temps.post80<-as.numeric(temps.vec[which(as.numeric(years.vec)>=year.threshold)])
+                
+                ## remove NAs
+                if(sum(temps.pre80>900)>0){
+                  temps.pre80<-temps.pre80[-which(temps.pre80>900)]}
+                if(sum(temps.post80>900)>0){
+                  temps.post80<-  temps.post80[-which(temps.post80>900)]}
+                
+                ## remove non-growing season
+                temps.pre80<-temps.pre80[which(temps.pre80>median(temps.pre80))]
+                temps.post80<-temps.post80[which(temps.post80>median(temps.post80))]
+                
+                ## store results
+                climate.each.region[i,1,j]<-mean(temps.pre80)
+                climate.each.region[i,2,j]<-sd(temps.pre80)
+                climate.each.region[i,3,j]<-mean(temps.post80)
+                climate.each.region[i,4,j]<-sd(temps.post80)
+                climate.each.region[i,5,j]<-min(temps.pre80)
+                climate.each.region[i,6,j]<-min(temps.post80)
+                climate.each.region[i,7,j]<-max(temps.pre80)
+                climate.each.region[i,8,j]<-max(temps.post80)
+              }
+            } else {
+              
+              ## remove NA data (-9999)
+              if(-9999%in%temps[,4]){
+                temps<-temps[-which(temps[,4]==-9999),]}
+              
+              ## subset pre and post climate change
+              temps.pre80<-temps[which(temps[,1]<year.threshold),]
+              temps.post80<-temps[which(temps[,1]>=year.threshold),]
+              
+              ## remove non-growing season
+              temps.pre80<-temps.pre80[which(temps.pre80[,4]>median(temps.pre80[,4])),]
+              temps.post80<-temps.post80[which(temps.post80[,4]>median(temps.post80[,4])),]
+              
+              ## store results
+              climate.each.region[i,1,j]<-mean(temps.pre80[,4])
+              climate.each.region[i,2,j]<-sd(temps.pre80[,4])
+              climate.each.region[i,3,j]<-mean(temps.post80[,4])
+              climate.each.region[i,4,j]<-sd(temps.post80[,4])
+              climate.each.region[i,5,j]<-min(temps.pre80[,4])
+              climate.each.region[i,6,j]<-min(temps.post80[,4])
+              climate.each.region[i,7,j]<-max(temps.pre80[,4])
+              climate.each.region[i,8,j]<-max(temps.post80[,4])
+              
+            }
+          }
+        } 
+      }
+    }
+    
+    
+  }
+}
+  return(climate.each.region)
+  }
+
+
+# execute function using 1980 as threshold
+extracted.climates<-extract.climate(list.regions=wine.regions.withdata,year.threshold=1980,growth=F)
+
+# execute function using 2000 as threshold and only warm season
+extracted.climates2000<-extract.climate(list.regions=wine.regions.withdata,year.threshold=2000,growth=T)
+
+
+##############################################
+##' Plotting results for Max temperatures
+  df.plot<-extracted.climates2000[,1:8,1]
+  df.plot<-df.plot[!duplicated(df.plot),]
+  df.plot<-df.plot[order(df.plot[,3]),]
+
+
+avg.x.1<-df.plot[,1]
+sdev.x.1<-df.plot[,2]
+avg.x.2<-df.plot[,3]
+sdev.x.2<-df.plot[,4]
+yvals<-nrow(df.plot)*4
+avg.y.1<-seq(1,yvals,4)
+avg.y.2<-seq(2,yvals,4)
+yvals.lab<-seq(1.5,yvals,4)
+
+par(mar=c(4,12,2,2))
+plot(avg.x.1,avg.y.1,pch=19,col="aquamarine4",xlab="Temperature (C)", 
+cex.lab=1.5,cex.axis=1.25,xlim=c(5,35),yaxt="n",ylab="")
+points(avg.x.2,avg.y.2,pch=19,col="coral3")
+axis(2, at=yvals.lab, labels=rownames(-df.plot),las=1)
+
+#' Error bars
+arrows(avg.x.1-sdev.x.1, avg.y.1, avg.x.1+sdev.x.1, avg.y.1,
+       length=0.05,angle=90, code=3,col="aquamarine4")
+
+arrows(avg.x.2-sdev.x.2, avg.y.2, avg.x.2+sdev.x.2, avg.y.2,
+       length=0.05,angle=90, code=3,col="coral3")
+
+legend('topleft', c("pre-2000","post-2000") , 
+       lty=1, lwd=2,col=c('aquamarine4', 'coral3'), bty='n', cex=1.25)
+
+
+
+
+
+
+
+
